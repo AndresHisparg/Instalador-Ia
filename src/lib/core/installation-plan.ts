@@ -1,126 +1,60 @@
-﻿import fs from "node:fs";
-import path from "node:path";
-
-const ROOT = process.cwd();
-
-type RegistryComponent = {
-  id?: unknown;
-  name?: unknown;
-  enabled?: unknown;
-  requiresAdministrator?: unknown;
-  trusted?: unknown;
-  type?: unknown;
-};
+﻿import {
+  getInstallerRegistry,
+  type InstallerDefinition,
+} from "@/lib/core/installer-registry";
 
 type PlannedComponent = {
   id: string;
   name: string;
   enabled: boolean;
+  installerType: InstallerDefinition["installerType"];
+  provider: string;
+  versionStrategy: InstallerDefinition["versionStrategy"];
   requiresAdministrator: boolean;
-  trusted: boolean;
   action: "install" | "system" | "dependency";
+  source: string | null;
+  verification: {
+    type: InstallerDefinition["verification"]["type"];
+    command: string | null;
+    args: string[];
+  };
 };
 
-function loadRegistry(): Record<string, unknown> {
-  const registryPath = path.join(
-    ROOT,
-    "data",
-    "config",
-    "installer-registry.json",
-  );
+function getAction(
+  installerType: InstallerDefinition["installerType"],
+): PlannedComponent["action"] {
+  switch (installerType) {
+    case "system":
+      return "system";
 
-  if (!fs.existsSync(registryPath)) {
-    return {};
+    case "package-manager":
+      return "dependency";
+
+    case "official-installer":
+    default:
+      return "install";
   }
-
-  try {
-    const parsed: unknown = JSON.parse(
-      fs.readFileSync(registryPath, "utf8"),
-    );
-
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-    ) {
-      return parsed as Record<string, unknown>;
-    }
-
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-function toRegistryComponent(
-  value: unknown,
-): RegistryComponent | null {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    Array.isArray(value)
-  ) {
-    return null;
-  }
-
-  return value as RegistryComponent;
 }
 
 export function planInstallation() {
-  const registry = loadRegistry();
+  const registry = getInstallerRegistry();
 
-  const components: PlannedComponent[] = [];
-
-  const rawComponents = Array.isArray(registry.components)
-    ? registry.components
-    : Object.entries(registry).map(([id, value]) => ({
-        id,
-        ...(typeof value === "object" &&
-        value !== null &&
-        !Array.isArray(value)
-          ? value
-          : {}),
-      }));
-
-  for (const rawItem of rawComponents) {
-    const item = toRegistryComponent(rawItem);
-
-    if (!item) {
-      continue;
-    }
-
-    const id =
-      typeof item.id === "string"
-        ? item.id
-        : "";
-
-    if (!id) {
-      continue;
-    }
-
-    const type =
-      typeof item.type === "string"
-        ? item.type
-        : "";
-
-    components.push({
-      id,
-      name:
-        typeof item.name === "string"
-          ? item.name
-          : id,
-      enabled: item.enabled === true,
-      requiresAdministrator:
-        item.requiresAdministrator === true,
-      trusted: item.trusted === true,
-      action:
-        type === "system"
-          ? "system"
-          : type === "dependency"
-            ? "dependency"
-            : "install",
-    });
-  }
+  const components: PlannedComponent[] = registry.map((installer) => ({
+    id: installer.componentId,
+    name: installer.componentName,
+    enabled: installer.enabled,
+    installerType: installer.installerType,
+    provider: installer.provider,
+    versionStrategy: installer.versionStrategy,
+    requiresAdministrator: installer.requiresAdministrator,
+    action: getAction(installer.installerType),
+    source: installer.source,
+    verification: {
+      type: installer.verification.type,
+      command: installer.verification.command,
+      args: [...installer.verification.args],
+    },
+  }));
 
   return {
     success: true,
@@ -137,9 +71,7 @@ export function planInstallation() {
       administratorRequired: components.filter(
         (component) => component.requiresAdministrator,
       ).length,
-      trusted: components.filter(
-        (component) => component.trusted,
-      ).length,
+      trusted: 0,
     },
   };
 }
