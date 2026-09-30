@@ -34,14 +34,38 @@ type PreparationResult = {
   };
 };
 
+type VerificationCheck = {
+  name: string;
+  passed: boolean;
+  detail: string;
+};
+
+type VerificationResult = {
+  success: boolean;
+  ready: boolean;
+  checkedAt: string;
+  checks: VerificationCheck[];
+};
+
 export default function Home() {
   const [state, setState] = useState<
-    "initial" | "loading" | "system" | "preparing" | "prepared" | "error"
+    | "initial"
+    | "loading"
+    | "system"
+    | "preparing"
+    | "prepared"
+    | "verifying"
+    | "verified"
+    | "error"
   >("initial");
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+
   const [preparationResult, setPreparationResult] =
     useState<PreparationResult | null>(null);
+
+  const [verificationResult, setVerificationResult] =
+    useState<VerificationResult | null>(null);
 
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -97,10 +121,44 @@ export default function Home() {
     }
   }
 
+  async function startVerification() {
+    setState("verifying");
+    setErrorMessage("");
+
+    try {
+      const response = await fetch("/api/verify");
+
+      if (!response.ok) {
+        throw new Error("No se pudo verificar el entorno.");
+      }
+
+      const data: VerificationResult = await response.json();
+
+      setVerificationResult(data);
+
+      if (data.ready) {
+        setState("verified");
+      } else {
+        setState("error");
+        setErrorMessage(
+          "El entorno no cumple todos los requisitos necesarios."
+        );
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Se produjo un error durante la verificación."
+      );
+      setState("error");
+    }
+  }
+
   function resetInstallation() {
     setState("initial");
     setSystemInfo(null);
     setPreparationResult(null);
+    setVerificationResult(null);
     setErrorMessage("");
   }
 
@@ -463,12 +521,193 @@ export default function Home() {
               style={{
                 marginTop: "30px",
                 display: "flex",
+                gap: "12px",
                 justifyContent: "center",
               }}
             >
               <button
                 onClick={resetInstallation}
                 style={{
+                  padding: "12px 22px",
+                  borderRadius: "8px",
+                  border: "1px solid #475569",
+                  background: "transparent",
+                  color: "#cbd5e1",
+                  fontSize: "15px",
+                  cursor: "pointer",
+                }}
+              >
+                Volver
+              </button>
+
+              <button
+                onClick={startVerification}
+                style={{
+                  padding: "12px 22px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#2563eb",
+                  color: "white",
+                  fontSize: "15px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Verificar entorno
+              </button>
+            </div>
+          </div>
+        )}
+
+        {state === "verifying" && (
+          <div style={{ textAlign: "center" }}>
+            <div
+              style={{
+                fontSize: "42px",
+                marginBottom: "20px",
+              }}
+            >
+              🔍
+            </div>
+
+            <h2 style={{ marginBottom: "10px" }}>
+              Verificando entorno...
+            </h2>
+
+            <p style={{ color: "#94a3b8" }}>
+              Comprobando todos los requisitos.
+            </p>
+          </div>
+        )}
+
+        {state === "verified" && verificationResult && (
+          <div>
+            <div
+              style={{
+                padding: "20px",
+                borderRadius: "10px",
+                background: "#052e16",
+                border: "1px solid #166534",
+                marginBottom: "25px",
+                textAlign: "center",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "32px",
+                  marginBottom: "8px",
+                }}
+              >
+                ✓
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color: "#86efac",
+                }}
+              >
+                ENTORNO VERIFICADO
+              </h2>
+
+              <p
+                style={{
+                  color: "#bbf7d0",
+                  marginBottom: 0,
+                }}
+              >
+                El sistema cumple todos los requisitos detectados.
+              </p>
+            </div>
+
+            <div>
+              <h3
+                style={{
+                  marginBottom: "15px",
+                  color: "#f8fafc",
+                }}
+              >
+                Resultado de la verificación
+              </h3>
+
+              <div
+                style={{
+                  border: "1px solid #334155",
+                  borderRadius: "10px",
+                  overflow: "hidden",
+                }}
+              >
+                {verificationResult.checks.map((check, index) => (
+                  <div
+                    key={check.name}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "20px",
+                      padding: "14px 16px",
+                      borderBottom:
+                        index < verificationResult.checks.length - 1
+                          ? "1px solid #334155"
+                          : "none",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          color: check.passed ? "#4ade80" : "#f87171",
+                          fontWeight: "bold",
+                          fontSize: "18px",
+                        }}
+                      >
+                        {check.passed ? "✓" : "✗"}
+                      </span>
+
+                      <span>{check.name}</span>
+                    </div>
+
+                    <span
+                      style={{
+                        color: "#94a3b8",
+                        fontSize: "14px",
+                        textAlign: "right",
+                      }}
+                    >
+                      {check.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: "30px",
+                textAlign: "center",
+              }}
+            >
+              <p
+                style={{
+                  color: "#94a3b8",
+                  fontSize: "14px",
+                }}
+              >
+                Verificado:{" "}
+                {new Date(
+                  verificationResult.checkedAt
+                ).toLocaleString()}
+              </p>
+
+              <button
+                onClick={resetInstallation}
+                style={{
+                  marginTop: "10px",
                   padding: "12px 22px",
                   borderRadius: "8px",
                   border: "1px solid #475569",
