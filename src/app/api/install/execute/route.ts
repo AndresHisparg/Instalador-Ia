@@ -24,6 +24,13 @@ type InstallationOrder = {
   status: string;
 };
 
+type AuthorizationRecord = {
+  orderId: string;
+  token: string;
+  createdAt: string;
+  used: boolean;
+};
+
 async function calculateSha256(filePath: string): Promise<string> {
   const hash = crypto.createHash("sha256");
   const data = await fs.readFile(filePath);
@@ -63,13 +70,51 @@ async function readOrder(orderId: string): Promise<InstallationOrder | null> {
           return order;
         }
       } catch {
-        // Ignorar líneas de auditoría inválidas.
+        // Ignorar líneas inválidas.
       }
     }
 
     return null;
   } catch {
     return null;
+  }
+}
+
+async function consumeAuthorization(
+  orderId: string,
+  token: string
+): Promise<boolean> {
+  const authorizationPath = path.join(
+    process.cwd(),
+    "data",
+    "work",
+    "authorizations",
+    `${orderId}.json`
+  );
+
+  try {
+    const content = await fs.readFile(authorizationPath, "utf8");
+    const authorization = JSON.parse(content) as AuthorizationRecord;
+
+    if (
+      authorization.orderId !== orderId ||
+      authorization.token !== token ||
+      authorization.used === true
+    ) {
+      return false;
+    }
+
+    authorization.used = true;
+
+    await fs.writeFile(
+      authorizationPath,
+      JSON.stringify(authorization, null, 2),
+      "utf8"
+    );
+
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -80,7 +125,8 @@ export async function POST(request: Request) {
     const orderId =
       typeof body?.orderId === "string" ? body.orderId.trim() : "";
 
-    const confirm = body?.confirm === true;
+    const token =
+      typeof body?.token === "string" ? body.token.trim() : "";
 
     if (!orderId) {
       return NextResponse.json(
@@ -93,14 +139,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // PRIMERA BARRERA:
-    // Nunca se permite continuar sin confirmación explícita.
-    if (!confirm) {
+    if (!token) {
       return NextResponse.json(
         {
           success: false,
           error:
-            "Ejecución bloqueada. Se requiere confirmación explícita.",
+            "Ejecución bloqueada. Se requiere un token de autorización de un solo uso.",
           executionAllowed: false,
         },
         { status: 403 }
@@ -120,7 +164,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (order.status !== "awaiting-confirmation" || order.executionAllowed === true) {
+    if (
+      order.status !== "awaiting-confirmation" ||
+      order.executionAllowed === true
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -128,6 +175,19 @@ export async function POST(request: Request) {
           executionAllowed: false,
         },
         { status: 409 }
+      );
+    }
+
+    const authorized = await consumeAuthorization(orderId, token);
+
+    if (!authorized) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Token inválido, inexistente o ya utilizado.",
+          executionAllowed: false,
+        },
+        { status: 403 }
       );
     }
 
@@ -154,8 +214,6 @@ export async function POST(request: Request) {
       );
     }
 
-    // En esta fase solo permitimos Node.js.
-    // Git seguirá bloqueado hasta implementar su ejecución controlada.
     if (order.componentId !== "node") {
       return NextResponse.json(
         {
@@ -283,4 +341,3 @@ export async function POST(request: Request) {
     );
   }
 }
-
