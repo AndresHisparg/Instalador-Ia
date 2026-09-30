@@ -9,7 +9,7 @@ const DATA_DIR = path.join(ROOT, "data");
 const WORK_DIR = path.join(DATA_DIR, "work");
 const ORDERS_LOG = path.join(DATA_DIR, "logs", "installation-orders.log");
 
-const HELPER_PATH = path.join(WORK_DIR, "install-elevated.ps1");
+const HELPER_PATH = path.join(ROOT, "src", "lib", "installer", "install-elevated.ps1");
 const REQUEST_PATH = path.join(WORK_DIR, "elevated-install-request.json");
 const RESULT_PATH = path.join(WORK_DIR, "elevated-install-result.json");
 
@@ -279,3 +279,4 @@ export async function POST(request: Request) {
     );
   }
 }
+
