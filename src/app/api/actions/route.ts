@@ -1,7 +1,7 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import {
+  executeAction,
   getActionCatalog,
-  validateAction,
 } from "@/lib/actions/engine";
 
 export async function GET() {
@@ -36,26 +36,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const blocked = validateAction({
-    action: body.action,
-    input: body.input,
-  });
-
-  if (blocked) {
-    return NextResponse.json(
-      blocked,
-      { status: blocked.status === "unknown" ? 404 : 403 },
-    );
-  }
-
-  return NextResponse.json({
-    success: true,
-    action: body.action,
-    status: "completed",
-    result: {
-      message:
-        "Acción validada. La ejecución específica se conectará en el siguiente paso.",
-      input: body.input ?? {},
+  const result = await executeAction(
+    {
+      action: body.action,
+      input: body.input,
     },
-  });
+    {
+      request,
+    },
+  );
+
+  const status =
+    result.status === "unknown"
+      ? 404
+      : result.status === "blocked"
+        ? 403
+        : 200;
+
+  return NextResponse.json(result, { status });
 }
