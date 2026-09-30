@@ -1,5 +1,9 @@
 import fs from "fs/promises";
 import path from "path";
+import { execFile } from "child_process";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 const PREPARED_DIRECTORIES = [
   "data",
@@ -8,6 +12,57 @@ const PREPARED_DIRECTORIES = [
   "data/work",
   "data/cache",
 ];
+
+type ToolStatus = {
+  installed: boolean;
+  version: string | null;
+};
+
+async function detectTool(
+  command: string,
+  args: string[]
+): Promise<ToolStatus> {
+  try {
+    const { stdout } = await execFileAsync(command, args, {
+      windowsHide: true,
+    });
+
+    return {
+      installed: true,
+      version: stdout.trim(),
+    };
+  } catch {
+    return {
+      installed: false,
+      version: null,
+    };
+  }
+}
+
+async function detectNpm(): Promise<ToolStatus> {
+  try {
+    const npmCli =
+      "C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js";
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [npmCli, "--version"],
+      {
+        windowsHide: true,
+      }
+    );
+
+    return {
+      installed: true,
+      version: stdout.trim(),
+    };
+  } catch {
+    return {
+      installed: false,
+      version: null,
+    };
+  }
+}
 
 export async function POST() {
   const projectRoot = process.cwd();
@@ -28,32 +83,63 @@ export async function POST() {
       }
     }
 
-    const configPath = path.join(projectRoot, "data", "config", "installer.json");
+    const node = {
+      installed: true,
+      version: process.version,
+    };
 
-    let configCreated = false;
+    const npm = await detectNpm();
 
-    try {
-      await fs.access(configPath);
-    } catch {
-      const config = {
-        project: "instalador-ia",
-        version: "0.1.0",
-        preparedAt: new Date().toISOString(),
-        status: "prepared",
-      };
+    const git = await detectTool("git.exe", ["--version"]);
 
-      await fs.writeFile(
-        configPath,
-        JSON.stringify(config, null, 2),
-        "utf8"
-      );
+    const powershell = await detectTool("powershell.exe", [
+      "-NoProfile",
+      "-Command",
+      "$PSVersionTable.PSVersion.ToString()",
+    ]);
 
-      configCreated = true;
-    }
+    const tools = {
+      node,
+      npm,
+      git,
+      powershell,
+    };
 
-    const logPath = path.join(projectRoot, "data", "logs", "installer.log");
+    const configPath = path.join(
+      projectRoot,
+      "data",
+      "config",
+      "installer.json"
+    );
 
-    const logEntry = `[${new Date().toISOString()}] Preparación completada\n`;
+    const config = {
+      project: "instalador-ia",
+      version: "0.1.0",
+      preparedAt: new Date().toISOString(),
+      status: "prepared",
+      tools,
+    };
+
+    await fs.writeFile(
+      configPath,
+      JSON.stringify(config, null, 2),
+      "utf8"
+    );
+
+    const logPath = path.join(
+      projectRoot,
+      "data",
+      "logs",
+      "installer.log"
+    );
+
+    const logEntry =
+      `[${new Date().toISOString()}] ` +
+      `Preparación completada. ` +
+      `Node=${node.version}; ` +
+      `npm=${npm.version ?? "not-found"}; ` +
+      `Git=${git.version ?? "not-found"}; ` +
+      `PowerShell=${powershell.version ?? "not-found"}\n`;
 
     await fs.appendFile(logPath, logEntry, "utf8");
 
@@ -62,8 +148,7 @@ export async function POST() {
       message: "Entorno preparado correctamente.",
       created,
       existing,
-      configCreated,
-      logCreated: true,
+      tools,
     });
   } catch (error) {
     console.error("Preparation error:", error);

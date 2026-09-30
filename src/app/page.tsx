@@ -16,83 +16,63 @@ type SystemInfo = {
   hostname: string;
 };
 
-type CheckStatus = "ok" | "warning" | "error";
-
-type Check = {
-  name: string;
-  value: string;
-  status: CheckStatus;
+type ToolInfo = {
+  installed: boolean;
+  version: string | null;
 };
 
-function getStatusIcon(status: CheckStatus) {
-  if (status === "ok") return "✓";
-  if (status === "warning") return "⚠";
-  return "✕";
-}
-
-function SystemCheck({
-  name,
-  value,
-  status,
-}: Check) {
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-5 py-4">
-      <div className="flex items-center gap-4">
-        <div
-          className={`flex h-9 w-9 items-center justify-center rounded-full text-lg font-bold ${
-            status === "ok"
-              ? "bg-emerald-500/15 text-emerald-400"
-              : status === "warning"
-                ? "bg-yellow-500/15 text-yellow-400"
-                : "bg-red-500/15 text-red-400"
-          }`}
-        >
-          {getStatusIcon(status)}
-        </div>
-
-        <span className="text-gray-300">{name}</span>
-      </div>
-
-      <span className="font-medium text-white">{value}</span>
-    </div>
-  );
-}
+type PreparationResult = {
+  success: boolean;
+  message: string;
+  created: string[];
+  existing: string[];
+  tools: {
+    node: ToolInfo;
+    npm: ToolInfo;
+    git: ToolInfo;
+    powershell: ToolInfo;
+  };
+};
 
 export default function Home() {
-  const [loading, setLoading] = useState(false);
-  const [system, setSystem] = useState<SystemInfo | null>(null);
-  const [preparing, setPreparing] = useState(false);
-  const [prepared, setPrepared] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, setState] = useState<
+    "initial" | "loading" | "system" | "preparing" | "prepared" | "error"
+  >("initial");
+
+  const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
+  const [preparationResult, setPreparationResult] =
+    useState<PreparationResult | null>(null);
+
+  const [errorMessage, setErrorMessage] = useState("");
 
   async function startInstallation() {
-    setLoading(true);
-    setError(null);
+    setState("loading");
+    setErrorMessage("");
 
     try {
       const response = await fetch("/api/system");
 
       if (!response.ok) {
-        throw new Error("No se pudo analizar el sistema.");
+        throw new Error("No se pudo obtener la información del sistema.");
       }
 
       const data: SystemInfo = await response.json();
 
-      setSystem(data);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Ocurrió un error inesperado."
+      setSystemInfo(data);
+      setState("system");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Se produjo un error desconocido."
       );
-    } finally {
-      setLoading(false);
+      setState("error");
     }
   }
 
   async function startPreparation() {
-    setPreparing(true);
-    setError(null);
+    setState("preparing");
+    setErrorMessage("");
 
     try {
       const response = await fetch("/api/prepare", {
@@ -103,225 +83,509 @@ export default function Home() {
         throw new Error("No se pudo preparar el entorno.");
       }
 
-      const data = await response.json();
+      const data: PreparationResult = await response.json();
 
-      if (!data.success) {
-        throw new Error(
-          data.message ?? "La preparación no se completó correctamente."
-        );
-      }
-
-      setPrepared(true);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Ocurrió un error durante la preparación."
+      setPreparationResult(data);
+      setState("prepared");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Se produjo un error durante la preparación."
       );
-    } finally {
-      setPreparing(false);
+      setState("error");
     }
   }
 
-  const checks: Check[] = system
-    ? [
-        {
-          name: "Sistema operativo",
-          value: system.platform === "win32" ? "Windows" : system.platform,
-          status: system.platform === "win32" ? "ok" : "error",
-        },
-        {
-          name: "Arquitectura",
-          value: system.architecture,
-          status: system.architecture === "x64" ? "ok" : "warning",
-        },
-        {
-          name: "Node.js",
-          value: system.nodeVersion,
-          status: "ok",
-        },
-        {
-          name: "npm",
-          value: system.npmVersion ?? "No encontrado",
-          status: system.npmVersion ? "ok" : "error",
-        },
-        {
-          name: "Git",
-          value: system.gitVersion ?? "No encontrado",
-          status: system.gitVersion ? "ok" : "error",
-        },
-        {
-          name: "Procesador",
-          value: `${system.cpuCores} núcleos`,
-          status: system.cpuCores >= 4 ? "ok" : "warning",
-        },
-        {
-          name: "Memoria RAM",
-          value: `${system.freeMemoryGB} GB disponibles`,
-          status: system.freeMemoryGB >= 4 ? "ok" : "warning",
-        },
-        {
-          name: "Espacio en disco",
-          value:
-            system.diskFreeGB !== null
-              ? `${system.diskFreeGB} GB disponibles`
-              : "No disponible",
-          status:
-            system.diskFreeGB === null
-              ? "warning"
-              : system.diskFreeGB >= 20
-                ? "ok"
-                : "warning",
-        },
-      ]
-    : [];
+  function resetInstallation() {
+    setState("initial");
+    setSystemInfo(null);
+    setPreparationResult(null);
+    setErrorMessage("");
+  }
 
   const systemReady =
-    system !== null &&
-    checks.every((check) => check.status === "ok");
+    systemInfo &&
+    systemInfo.platform === "win32" &&
+    systemInfo.architecture === "x64" &&
+    !!systemInfo.nodeVersion &&
+    !!systemInfo.npmVersion &&
+    !!systemInfo.gitVersion;
+
+  function getToolName(name: string) {
+    switch (name) {
+      case "node":
+        return "Node.js";
+      case "npm":
+        return "npm";
+      case "git":
+        return "Git";
+      case "powershell":
+        return "PowerShell";
+      default:
+        return name;
+    }
+  }
 
   return (
-    <main className="min-h-screen bg-[#070b14] px-6 py-12 text-white">
-      <div className="mx-auto flex min-h-[80vh] max-w-4xl flex-col justify-center">
-        {!system ? (
-          <section className="text-center">
-            <div className="mb-8 inline-flex rounded-2xl border border-blue-400/20 bg-blue-500/10 px-5 py-2 text-sm text-blue-300">
-              INSTALADOR-IA
-            </div>
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#0f172a",
+        color: "#e2e8f0",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: "40px 20px",
+        fontFamily: "Arial, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          width: "100%",
+          maxWidth: "760px",
+          background: "#111827",
+          border: "1px solid #334155",
+          borderRadius: "16px",
+          padding: "40px",
+          boxShadow: "0 20px 50px rgba(0,0,0,0.35)",
+        }}
+      >
+        <div style={{ textAlign: "center", marginBottom: "35px" }}>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: "38px",
+              letterSpacing: "2px",
+              color: "#f8fafc",
+            }}
+          >
+            INSTALADOR-IA
+          </h1>
 
-            <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
-              Tu asistente inteligente,
-              <br />
-              <span className="text-blue-400">
-                listo para instalar.
-              </span>
-            </h1>
+          <p
+            style={{
+              marginTop: "12px",
+              color: "#94a3b8",
+              fontSize: "16px",
+            }}
+          >
+            Preparación automática del entorno
+          </p>
+        </div>
 
-            <p className="mx-auto mt-6 max-w-2xl text-lg leading-8 text-gray-400">
-              Analizaremos tu equipo para comprobar que todo esté
-              preparado antes de comenzar la instalación.
+        {state === "initial" && (
+          <div style={{ textAlign: "center" }}>
+            <p
+              style={{
+                color: "#cbd5e1",
+                lineHeight: 1.7,
+                marginBottom: "30px",
+              }}
+            >
+              Este asistente comprobará el sistema y preparará el entorno
+              necesario para Instalador-IA.
             </p>
 
             <button
               onClick={startInstallation}
-              disabled={loading}
-              className="mt-10 rounded-xl bg-blue-500 px-8 py-4 text-lg font-semibold transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
+              style={{
+                padding: "14px 28px",
+                borderRadius: "8px",
+                border: "none",
+                background: "#2563eb",
+                color: "white",
+                fontSize: "16px",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
             >
-              {loading
-                ? "Analizando tu equipo..."
-                : "Comenzar instalación"}
+              Comenzar instalación
             </button>
+          </div>
+        )}
 
-            {error && (
-              <p className="mx-auto mt-6 max-w-lg rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-red-300">
-                {error}
-              </p>
-            )}
-          </section>
-        ) : (
-          <section>
-            <div className="mb-10 text-center">
-              <div className="mb-4 text-sm font-medium uppercase tracking-[0.25em] text-blue-400">
-                INSTALADOR-IA
-              </div>
+        {state === "loading" && (
+          <div style={{ textAlign: "center" }}>
+            <p style={{ fontSize: "18px" }}>Analizando el sistema...</p>
+          </div>
+        )}
 
-              <h1 className="text-4xl font-bold sm:text-5xl">
-                Comprobación del sistema
-              </h1>
+        {state === "system" && systemInfo && (
+          <div>
+            <h2
+              style={{
+                marginTop: 0,
+                marginBottom: "25px",
+                color: "#f8fafc",
+              }}
+            >
+              Diagnóstico del sistema
+            </h2>
 
-              <p className="mt-4 text-gray-400">
-                Hemos analizado el equipo{" "}
-                <span className="font-medium text-gray-200">
-                  {system.hostname}
-                </span>
-                .
-              </p>
-            </div>
+            <div
+              style={{
+                display: "grid",
+                gap: "10px",
+              }}
+            >
+              <SystemCheck
+                label="Windows"
+                value={systemInfo.platform === "win32"}
+                detail={systemInfo.platform}
+              />
 
-            <div className="space-y-3">
-              {checks.map((check) => (
-                <SystemCheck
-                  key={check.name}
-                  name={check.name}
-                  value={check.value}
-                  status={check.status}
-                />
-              ))}
+              <SystemCheck
+                label="Arquitectura x64"
+                value={systemInfo.architecture === "x64"}
+                detail={systemInfo.architecture}
+              />
+
+              <SystemCheck
+                label="Node.js"
+                value={!!systemInfo.nodeVersion}
+                detail={systemInfo.nodeVersion}
+              />
+
+              <SystemCheck
+                label="npm"
+                value={!!systemInfo.npmVersion}
+                detail={systemInfo.npmVersion ?? "No detectado"}
+              />
+
+              <SystemCheck
+                label="Git"
+                value={!!systemInfo.gitVersion}
+                detail={systemInfo.gitVersion ?? "No detectado"}
+              />
+
+              <SystemCheck
+                label="CPU"
+                value={systemInfo.cpuCores >= 2}
+                detail={`${systemInfo.cpuCores} núcleos`}
+              />
+
+              <SystemCheck
+                label="RAM"
+                value={systemInfo.totalMemoryGB >= 4}
+                detail={`${systemInfo.totalMemoryGB} GB`}
+              />
+
+              <SystemCheck
+                label="Disco C:"
+                value={
+                  systemInfo.diskFreeGB === null ||
+                  systemInfo.diskFreeGB >= 10
+                }
+                detail={
+                  systemInfo.diskFreeGB === null
+                    ? "No disponible"
+                    : `${systemInfo.diskFreeGB} GB libres de ${systemInfo.diskTotalGB} GB`
+                }
+              />
             </div>
 
             <div
-              className={`mt-8 rounded-2xl border p-6 text-center ${
-                systemReady
-                  ? "border-emerald-500/20 bg-emerald-500/10"
-                  : "border-yellow-500/20 bg-yellow-500/10"
-              }`}
+              style={{
+                marginTop: "30px",
+                display: "flex",
+                gap: "12px",
+                justifyContent: "center",
+              }}
             >
-              <div
-                className={`text-2xl font-bold ${
-                  systemReady
-                    ? "text-emerald-400"
-                    : "text-yellow-400"
-                }`}
-              >
-                {systemReady
-                  ? "✓ SISTEMA PREPARADO"
-                  : "⚠ REQUIERE ATENCIÓN"}
-              </div>
-
-              <p className="mt-2 text-gray-400">
-                {systemReady
-                  ? "Tu equipo cumple los requisitos para continuar."
-                  : "Hay requisitos que debemos revisar antes de continuar."}
-              </p>
-            </div>
-
-            {prepared && (
-              <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-center">
-                <div className="text-xl font-bold text-emerald-400">
-                  ✓ PREPARACIÓN COMPLETADA
-                </div>
-
-                <p className="mt-2 text-gray-400">
-                  El entorno de trabajo ha sido preparado correctamente.
-                </p>
-              </div>
-            )}
-
-            {error && (
-              <p className="mx-auto mt-6 max-w-lg rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-center text-red-300">
-                {error}
-              </p>
-            )}
-
-            <div className="mt-8 flex justify-center gap-4">
               <button
-                onClick={() => {
-                  setSystem(null);
-                  setPrepared(false);
-                  setError(null);
+                onClick={resetInstallation}
+                style={{
+                  padding: "12px 22px",
+                  borderRadius: "8px",
+                  border: "1px solid #475569",
+                  background: "transparent",
+                  color: "#cbd5e1",
+                  fontSize: "15px",
+                  cursor: "pointer",
                 }}
-                className="rounded-xl border border-white/10 px-6 py-3 font-medium text-gray-300 transition hover:bg-white/5"
               >
                 Volver
               </button>
 
-              {systemReady && (
-                <button
-                  onClick={startPreparation}
-                  disabled={preparing || prepared}
-                  className="rounded-xl bg-blue-500 px-8 py-3 font-semibold transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {preparing
-                    ? "Preparando..."
-                    : prepared
-                      ? "Preparación completada"
-                      : "Continuar"}
-                </button>
-              )}
+              <button
+                onClick={startPreparation}
+                disabled={!systemReady}
+                style={{
+                  padding: "12px 22px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: systemReady ? "#2563eb" : "#475569",
+                  color: "white",
+                  fontSize: "15px",
+                  fontWeight: 600,
+                  cursor: systemReady ? "pointer" : "not-allowed",
+                }}
+              >
+                Continuar
+              </button>
             </div>
-          </section>
+          </div>
+        )}
+
+        {state === "preparing" && (
+          <div style={{ textAlign: "center" }}>
+            <div
+              style={{
+                fontSize: "42px",
+                marginBottom: "20px",
+              }}
+            >
+              ⚙
+            </div>
+
+            <h2 style={{ marginBottom: "10px" }}>
+              Preparando entorno...
+            </h2>
+
+            <p style={{ color: "#94a3b8" }}>
+              Creando directorios y detectando herramientas.
+            </p>
+          </div>
+        )}
+
+        {state === "prepared" && preparationResult && (
+          <div>
+            <div
+              style={{
+                padding: "20px",
+                borderRadius: "10px",
+                background: "#052e16",
+                border: "1px solid #166534",
+                marginBottom: "25px",
+                textAlign: "center",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "32px",
+                  marginBottom: "8px",
+                }}
+              >
+                ✓
+              </div>
+
+              <h2
+                style={{
+                  margin: 0,
+                  color: "#86efac",
+                }}
+              >
+                PREPARACIÓN COMPLETADA
+              </h2>
+
+              <p
+                style={{
+                  color: "#bbf7d0",
+                  marginBottom: 0,
+                }}
+              >
+                {preparationResult.message}
+              </p>
+            </div>
+
+            <div>
+              <h3
+                style={{
+                  marginBottom: "15px",
+                  color: "#f8fafc",
+                }}
+              >
+                Herramientas detectadas
+              </h3>
+
+              <div
+                style={{
+                  border: "1px solid #334155",
+                  borderRadius: "10px",
+                  overflow: "hidden",
+                }}
+              >
+                {Object.entries(preparationResult.tools).map(
+                  ([name, tool], index) => (
+                    <div
+                      key={name}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "20px",
+                        padding: "14px 16px",
+                        borderBottom:
+                          index <
+                          Object.entries(preparationResult.tools).length - 1
+                            ? "1px solid #334155"
+                            : "none",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: tool.installed ? "#4ade80" : "#f87171",
+                            fontWeight: "bold",
+                            fontSize: "18px",
+                          }}
+                        >
+                          {tool.installed ? "✓" : "✗"}
+                        </span>
+
+                        <span>{getToolName(name)}</span>
+                      </div>
+
+                      <span
+                        style={{
+                          color: "#94a3b8",
+                          fontSize: "14px",
+                          textAlign: "right",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {tool.version ?? "No detectado"}
+                      </span>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{
+                marginTop: "30px",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              <button
+                onClick={resetInstallation}
+                style={{
+                  padding: "12px 22px",
+                  borderRadius: "8px",
+                  border: "1px solid #475569",
+                  background: "transparent",
+                  color: "#cbd5e1",
+                  fontSize: "15px",
+                  cursor: "pointer",
+                }}
+              >
+                Volver
+              </button>
+            </div>
+          </div>
+        )}
+
+        {state === "error" && (
+          <div>
+            <div
+              style={{
+                padding: "20px",
+                borderRadius: "10px",
+                background: "#450a0a",
+                border: "1px solid #991b1b",
+                marginBottom: "25px",
+              }}
+            >
+              <h2
+                style={{
+                  marginTop: 0,
+                  color: "#fca5a5",
+                }}
+              >
+                Error
+              </h2>
+
+              <p
+                style={{
+                  color: "#fecaca",
+                  marginBottom: 0,
+                }}
+              >
+                {errorMessage}
+              </p>
+            </div>
+
+            <div style={{ textAlign: "center" }}>
+              <button
+                onClick={resetInstallation}
+                style={{
+                  padding: "12px 22px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#2563eb",
+                  color: "white",
+                  fontSize: "15px",
+                  cursor: "pointer",
+                }}
+              >
+                Volver a intentar
+              </button>
+            </div>
+          </div>
         )}
       </div>
     </main>
+  );
+}
+
+function SystemCheck({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: boolean;
+  detail: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "20px",
+        padding: "12px 14px",
+        borderRadius: "8px",
+        background: "#1e293b",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+        }}
+      >
+        <span
+          style={{
+            color: value ? "#4ade80" : "#f87171",
+            fontWeight: "bold",
+          }}
+        >
+          {value ? "✓" : "✗"}
+        </span>
+
+        <span>{label}</span>
+      </div>
+
+      <span
+        style={{
+          color: "#94a3b8",
+          fontSize: "14px",
+          textAlign: "right",
+        }}
+      >
+        {detail}
+      </span>
+    </div>
   );
 }
