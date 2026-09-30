@@ -61,6 +61,8 @@ function SystemCheck({
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [system, setSystem] = useState<SystemInfo | null>(null);
+  const [preparing, setPreparing] = useState(false);
+  const [prepared, setPrepared] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function startInstallation() {
@@ -75,6 +77,7 @@ export default function Home() {
       }
 
       const data: SystemInfo = await response.json();
+
       setSystem(data);
     } catch (err) {
       setError(
@@ -84,6 +87,39 @@ export default function Home() {
       );
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function startPreparation() {
+    setPreparing(true);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/prepare", {
+        method: "POST",
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudo preparar el entorno.");
+      }
+
+      const data = await response.json();
+
+      if (!data.success) {
+        throw new Error(
+          data.message ?? "La preparación no se completó correctamente."
+        );
+      }
+
+      setPrepared(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Ocurrió un error durante la preparación."
+      );
+    } finally {
+      setPreparing(false);
     }
   }
 
@@ -171,7 +207,9 @@ export default function Home() {
               disabled={loading}
               className="mt-10 rounded-xl bg-blue-500 px-8 py-4 text-lg font-semibold transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? "Analizando tu equipo..." : "Comenzar instalación"}
+              {loading
+                ? "Analizando tu equipo..."
+                : "Comenzar instalación"}
             </button>
 
             {error && (
@@ -237,9 +275,31 @@ export default function Home() {
               </p>
             </div>
 
+            {prepared && (
+              <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5 text-center">
+                <div className="text-xl font-bold text-emerald-400">
+                  ✓ PREPARACIÓN COMPLETADA
+                </div>
+
+                <p className="mt-2 text-gray-400">
+                  El entorno de trabajo ha sido preparado correctamente.
+                </p>
+              </div>
+            )}
+
+            {error && (
+              <p className="mx-auto mt-6 max-w-lg rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-center text-red-300">
+                {error}
+              </p>
+            )}
+
             <div className="mt-8 flex justify-center gap-4">
               <button
-                onClick={() => setSystem(null)}
+                onClick={() => {
+                  setSystem(null);
+                  setPrepared(false);
+                  setError(null);
+                }}
                 className="rounded-xl border border-white/10 px-6 py-3 font-medium text-gray-300 transition hover:bg-white/5"
               >
                 Volver
@@ -247,12 +307,15 @@ export default function Home() {
 
               {systemReady && (
                 <button
-                  onClick={() =>
-                    alert("Siguiente etapa del instalador.")
-                  }
-                  className="rounded-xl bg-blue-500 px-8 py-3 font-semibold transition hover:bg-blue-400"
+                  onClick={startPreparation}
+                  disabled={preparing || prepared}
+                  className="rounded-xl bg-blue-500 px-8 py-3 font-semibold transition hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Continuar
+                  {preparing
+                    ? "Preparando..."
+                    : prepared
+                      ? "Preparación completada"
+                      : "Continuar"}
                 </button>
               )}
             </div>
