@@ -1,331 +1,270 @@
 ﻿import { NextResponse } from "next/server";
+import { spawn } from "child_process";
 import fs from "fs/promises";
 import path from "path";
-import { spawn } from "child_process";
 import crypto from "crypto";
+
+const ROOT = process.cwd();
+const DATA_DIR = path.join(ROOT, "data");
+const WORK_DIR = path.join(DATA_DIR, "work");
+const ORDERS_LOG = path.join(DATA_DIR, "logs", "installation-orders.log");
+
+const HELPER_PATH = path.join(WORK_DIR, "install-elevated.ps1");
+const REQUEST_PATH = path.join(WORK_DIR, "elevated-install-request.json");
+const RESULT_PATH = path.join(WORK_DIR, "elevated-install-result.json");
+
+const AUTH_DIR = path.join(WORK_DIR, "authorizations");
 
 const TRUSTED_HASHES: Record<string, string> = {
   node: "bb0eaee134f9357f22aea915ee793343e627aefc1e66488164bac6915bce2cac",
   git: "bfe94e7b419b16eee9fecbd1253a98e3d4f49ba8f029630549052278ffe286a6",
 };
 
-type InstallationOrder = {
-  orderId: string;
-  createdAt: string;
-  componentId: string;
-  componentName: string;
-  version: string;
-  installerPath: string;
-  fileSize: number;
-  sha256: string;
-  verified: boolean;
-  requiresAdministrator: boolean;
-  executionAllowed: boolean;
-  status: string;
-};
-
-type AuthorizationRecord = {
-  orderId: string;
-  token: string;
-  createdAt: string;
-  used: boolean;
-};
-
-async function calculateSha256(filePath: string): Promise<string> {
-  const hash = crypto.createHash("sha256");
-  const data = await fs.readFile(filePath);
-  hash.update(data);
-  return hash.digest("hex");
-}
-
-async function appendAudit(order: InstallationOrder) {
-  const logPath = path.join(
-    process.cwd(),
-    "data",
-    "logs",
-    "installation-orders.log"
-  );
-
-  await fs.mkdir(path.dirname(logPath), { recursive: true });
-  await fs.appendFile(logPath, JSON.stringify(order) + "\n", "utf8");
-}
-
-async function readOrder(orderId: string): Promise<InstallationOrder | null> {
-  const logPath = path.join(
-    process.cwd(),
-    "data",
-    "logs",
-    "installation-orders.log"
-  );
-
+async function readLatestOrder(orderId: string) {
   try {
-    const content = await fs.readFile(logPath, "utf8");
-    const lines = content.split(/\r?\n/).filter(Boolean);
+    const raw = await fs.readFile(ORDERS_LOG, "utf8");
 
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const order = JSON.parse(lines[i]) as InstallationOrder;
-
-        if (order.orderId === orderId) {
-          return order;
+    const orders = raw
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
         }
-      } catch {
-        // Ignorar líneas inválidas.
-      }
-    }
+      })
+      .filter(Boolean)
+      .filter((order) => order.orderId === orderId);
 
-    return null;
+    return orders.length > 0 ? orders[orders.length - 1] : null;
   } catch {
     return null;
   }
 }
 
-async function consumeAuthorization(
-  orderId: string,
-  token: string
-): Promise<boolean> {
-  const authorizationPath = path.join(
-    process.cwd(),
-    "data",
-    "work",
-    "authorizations",
-    `${orderId}.json`
-  );
+async function consumeAuthorization(orderId: string, token: string) {
+  const authPath = path.join(AUTH_DIR, `${orderId}.json`);
+
+  let authorization: {
+    orderId?: string;
+    token?: string;
+    used?: boolean;
+  };
 
   try {
-    const content = await fs.readFile(authorizationPath, "utf8");
-    const authorization = JSON.parse(content) as AuthorizationRecord;
+    authorization = JSON.parse(await fs.readFile(authPath, "utf8"));
+  } catch {
+    return false;
+  }
 
-    if (
-      authorization.orderId !== orderId ||
-      authorization.token !== token ||
-      authorization.used === true
-    ) {
-      return false;
-    }
+  if (authorization.orderId !== orderId) {
+    return false;
+  }
 
-    authorization.used = true;
+  if (authorization.token !== token) {
+    return false;
+  }
 
+  if (authorization.used === true) {
+    return false;
+  }
+
+  authorization.used = true;
+  authorization.usedAt = new Date().toISOString();
+
+  const tempPath = `${authPath}.${crypto.randomBytes(8).toString("hex")}.tmp`;
+
+  try {
     await fs.writeFile(
-      authorizationPath,
+      tempPath,
       JSON.stringify(authorization, null, 2),
       "utf8"
     );
 
+    await fs.rename(tempPath, authPath);
     return true;
   } catch {
+    await fs.rm(tempPath, { force: true }).catch(() => {});
     return false;
   }
+}
+
+function launchElevated(helperPath: string) {
+  return new Promise<void>((resolve, reject) => {
+    const escapedPath = helperPath.replace(/'/g, "''");
+
+    const command =
+      `Start-Process -FilePath 'powershell.exe' ` +
+      `-Verb RunAs ` +
+      `-ArgumentList @(` +
+      `'-NoProfile',` +
+      `'-ExecutionPolicy','Bypass',` +
+      `'-File','${escapedPath}'` +
+      `)`;
+
+    const child = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        command,
+      ],
+      {
+        windowsHide: false,
+        shell: false,
+      }
+    );
+
+    child.on("error", reject);
+    child.on("close", () => resolve());
+  });
+}
+
+async function waitForResult(timeoutMs: number) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const raw = await fs.readFile(RESULT_PATH, "utf8");
+      return JSON.parse(raw);
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  return null;
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const orderId =
-      typeof body?.orderId === "string" ? body.orderId.trim() : "";
+    const orderId = String(body?.orderId ?? "");
+    const token = String(body?.token ?? "");
 
-    const token =
-      typeof body?.token === "string" ? body.token.trim() : "";
-
-    if (!orderId) {
+    if (!orderId || !token) {
       return NextResponse.json(
         {
           success: false,
-          error: "orderId es obligatorio.",
-          executionAllowed: false,
+          error: "orderId y token son obligatorios.",
         },
         { status: 400 }
       );
     }
 
-    if (!token) {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "Ejecución bloqueada. Se requiere un token de autorización de un solo uso.",
-          executionAllowed: false,
-        },
-        { status: 403 }
-      );
-    }
-
-    const order = await readOrder(orderId);
+    const order = await readLatestOrder(orderId);
 
     if (!order) {
       return NextResponse.json(
         {
           success: false,
-          error: "Orden de instalación no encontrada.",
-          executionAllowed: false,
+          error: "No se encontró la orden.",
         },
         { status: 404 }
       );
     }
 
-    if (
-      order.status !== "awaiting-confirmation" ||
-      order.executionAllowed === true
-    ) {
+    if (order.status !== "awaiting-confirmation") {
       return NextResponse.json(
         {
           success: false,
-          error: `La orden no puede ejecutarse porque su estado actual es: ${order.status}.`,
-          executionAllowed: false,
+          error: "La orden no está lista para ejecución.",
         },
         { status: 409 }
       );
     }
 
-    const authorized = await consumeAuthorization(orderId, token);
-
-    if (!authorized) {
+    if (order.verified !== true) {
       return NextResponse.json(
         {
           success: false,
-          error: "Token inválido, inexistente o ya utilizado.",
-          executionAllowed: false,
+          error: "La orden no está verificada.",
         },
         { status: 403 }
       );
     }
 
-    if (!order.verified) {
+    if (order.requiresAdministrator !== true) {
       return NextResponse.json(
         {
           success: false,
-          error: "La orden no está verificada.",
-          executionAllowed: false,
+          error: "La orden no requiere elevación administrativa.",
         },
-        { status: 409 }
+        { status: 403 }
       );
     }
 
-    if (!order.requiresAdministrator) {
+    if (!TRUSTED_HASHES[order.componentId]) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "La orden no contiene el requisito de privilegios administrativos esperado.",
-          executionAllowed: false,
+          error: "El componente no está permitido.",
         },
-        { status: 409 }
+        { status: 403 }
       );
     }
 
-    if (order.componentId !== "node") {
+    if (order.sha256?.toLowerCase() !== TRUSTED_HASHES[order.componentId]) {
       return NextResponse.json(
         {
           success: false,
-          error: "Componente no permitido para ejecución controlada.",
-          executionAllowed: false,
+          error: "El SHA-256 de la orden no coincide con el registro confiable.",
         },
-        { status: 400 }
+        { status: 403 }
       );
     }
 
-    const trustedHash = TRUSTED_HASHES[order.componentId];
+    const consumed = await consumeAuthorization(orderId, token);
 
-    if (!trustedHash) {
+    if (!consumed) {
       return NextResponse.json(
         {
           success: false,
-          error: "No existe una huella de confianza para este componente.",
-          executionAllowed: false,
+          error: "Token inválido, usado o no autorizado.",
         },
-        { status: 409 }
+        { status: 403 }
       );
     }
 
-    const installerExists = await fs
-      .stat(order.installerPath)
-      .then((stat) => stat.isFile())
-      .catch(() => false);
+    await fs.mkdir(WORK_DIR, { recursive: true });
 
-    if (!installerExists) {
-      return NextResponse.json(
+    await fs.rm(RESULT_PATH, { force: true });
+
+    await fs.writeFile(
+      REQUEST_PATH,
+      JSON.stringify(
         {
-          success: false,
-          error: "El instalador no existe en la ruta registrada.",
-          executionAllowed: false,
+          orderId,
+          requestedAt: new Date().toISOString(),
         },
-        { status: 404 }
-      );
-    }
-
-    const stat = await fs.stat(order.installerPath);
-
-    if (stat.size !== order.fileSize) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "El tamaño del instalador ha cambiado.",
-          executionAllowed: false,
-        },
-        { status: 409 }
-      );
-    }
-
-    const actualHash = await calculateSha256(order.installerPath);
-
-    if (actualHash !== order.sha256 || actualHash !== trustedHash) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "La verificación SHA-256 del instalador ha fallado.",
-          executionAllowed: false,
-        },
-        { status: 409 }
-      );
-    }
-
-    const executingOrder: InstallationOrder = {
-      ...order,
-      executionAllowed: true,
-      status: "executing",
-    };
-
-    await appendAudit(executingOrder);
-
-    const child = spawn(
-      "msiexec.exe",
-      ["/i", order.installerPath],
-      {
-        detached: false,
-        shell: false,
-        windowsHide: false,
-      }
+        null,
+        2
+      ),
+      "utf8"
     );
 
-    const exitCode = await new Promise<number>((resolve, reject) => {
-      child.on("error", reject);
+    await launchElevated(HELPER_PATH);
 
-      child.on("exit", (code) => {
-        resolve(code ?? -1);
-      });
-    });
+    const result = await waitForResult(30 * 60 * 1000);
 
-    const finalOrder: InstallationOrder = {
-      ...executingOrder,
-      executionAllowed: false,
-      status: exitCode === 0 ? "completed" : `failed-${exitCode}`,
-    };
+    if (!result) {
+      return NextResponse.json(
+        {
+          success: false,
+          elevationRequested: true,
+          elevated: false,
+          error:
+            "No se recibió resultado del proceso elevado.",
+        },
+        { status: 504 }
+      );
+    }
 
-    await appendAudit(finalOrder);
-
-    return NextResponse.json({
-      success: exitCode === 0,
-      executionStarted: true,
-      executionAllowed: false,
-      orderId: order.orderId,
-      componentId: order.componentId,
-      exitCode,
-      status: finalOrder.status,
-      message:
-        exitCode === 0
-          ? "El instalador terminó correctamente."
-          : `El instalador terminó con código ${exitCode}.`,
+    return NextResponse.json(result, {
+      status: result.success ? 200 : 500,
     });
   } catch (error) {
     return NextResponse.json(
@@ -335,7 +274,6 @@ export async function POST(request: Request) {
           error instanceof Error
             ? error.message
             : "Error interno durante la ejecución.",
-        executionAllowed: false,
       },
       { status: 500 }
     );
