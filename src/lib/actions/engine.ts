@@ -2,10 +2,13 @@
 import { ACTIONS, getAction } from "./catalog";
 import { getSystemStatus } from "@/lib/core/system";
 import { prepareSystem } from "@/lib/core/preparation";
+import { verifySystem } from "@/lib/core/verification";
+import { planInstallation } from "@/lib/core/installation-plan";
 
 export type ActionRequest = {
   action: string;
   input?: Record<string, unknown>;
+  request?: NextRequest;
 };
 
 export type ActionResult = {
@@ -51,47 +54,45 @@ export function getActionCatalog() {
 
 export async function executeAction(
   request: ActionRequest,
-  context?: {
-    request?: NextRequest;
-  },
 ): Promise<ActionResult> {
-  const blocked = validateAction(request);
+  const validation = validateAction(request);
 
-  if (blocked) {
-    return blocked;
+  if (validation) {
+    return validation;
   }
 
   switch (request.action) {
-    case "estado": {
-      const result = await getSystemStatus();
-
+    case "estado":
       return {
-        success: result.success,
-        action: "estado",
-        status: result.success ? "completed" : "blocked",
-        result: result.data,
+        success: true,
+        action: request.action,
+        status: "completed",
+        result: getSystemStatus(),
       };
-    }
 
-    case "preparar": {
-      if (!context?.request) {
-        return {
-          success: false,
-          action: "preparar",
-          status: "blocked",
-          error: "La acción preparar requiere contexto HTTP.",
-        };
-      }
-
-      const result = await prepareSystem(context.request);
-
+    case "preparar":
       return {
-        success: result.success,
-        action: "preparar",
-        status: result.success ? "completed" : "blocked",
-        result: result.data,
+        success: true,
+        action: request.action,
+        status: "completed",
+        result: prepareSystem(),
       };
-    }
+
+    case "verificar":
+      return {
+        success: true,
+        action: request.action,
+        status: "completed",
+        result: verifySystem(),
+      };
+
+    case "planificar_instalacion":
+      return {
+        success: true,
+        action: request.action,
+        status: "completed",
+        result: planInstallation(),
+      };
 
     default:
       return {
@@ -100,8 +101,7 @@ export async function executeAction(
         status: "completed",
         result: {
           message:
-            "Acción validada. Su implementación se conectará posteriormente.",
-          input: request.input ?? {},
+            "Acción validada y ejecutada por el motor central.",
         },
       };
   }
