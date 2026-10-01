@@ -36,15 +36,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await executeAction(
-    {
-      action: body.action,
-      input: body.input,
-    },
-    {
-      request,
-    },
-  );
+  const result = await executeAction({
+    action: body.action,
+    input: body.input,
+    request,
+  });
 
   const status =
     result.status === "unknown"

@@ -47,10 +47,11 @@ async function consumeAuthorization(orderId: string, token: string) {
   const authPath = path.join(AUTH_DIR, `${orderId}.json`);
 
   let authorization: {
-    orderId?: string;
-    token?: string;
-    used?: boolean;
-  };
+  orderId?: string;
+  token?: string;
+  used?: boolean;
+  usedAt?: string;
+};
 
   try {
     authorization = JSON.parse(await fs.readFile(authPath, "utf8"));
