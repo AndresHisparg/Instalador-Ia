@@ -1,15 +1,15 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
-export function getOpenAIClient() {
-  const apiKey = process.env.OPENAI_API_KEY;
+export function getGeminiClient() {
+  const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     throw new Error(
-      "Falta la variable de entorno OPENAI_API_KEY.",
+      "Falta la variable de entorno GEMINI_API_KEY.",
     );
   }
 
-  return new OpenAI({
+  return new GoogleGenAI({
     apiKey,
   });
 }

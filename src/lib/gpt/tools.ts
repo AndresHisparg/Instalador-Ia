@@ -3,7 +3,7 @@ import {
   type ActionResult,
 } from "@/lib/actions/engine";
 
-export const gptTools = [
+export const geminiTools = [
   {
     type: "function" as const,
     name: "get_system_status",
@@ -14,7 +14,6 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     type: "function" as const,
@@ -26,7 +25,6 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     type: "function" as const,
@@ -38,7 +36,6 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
-    strict: true,
   },
   {
     type: "function" as const,
@@ -50,11 +47,10 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
-    strict: true,
   },
 ];
 
-export async function executeGptTool(
+export async function executeGeminiTool(
   name: string,
 ): Promise<ActionResult> {
   switch (name) {
@@ -87,7 +83,7 @@ export async function executeGptTool(
         success: false,
         action: name,
         status: "unknown",
-        error: "Herramienta GPT no reconocida.",
+        error: "Herramienta Gemini no reconocida.",
       };
   }
 }

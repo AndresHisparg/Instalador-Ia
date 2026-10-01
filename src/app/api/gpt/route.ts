@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { getOpenAIClient } from "@/lib/gpt/client";
+import { getGeminiClient } from "@/lib/gpt/client";
 import {
-  executeGptTool,
-  gptTools,
+  executeGeminiTool,
+  geminiTools,
 } from "@/lib/gpt/tools";
 
-const MODEL = process.env.OPENAI_MODEL;
+const MODEL = process.env.GEMINI_MODEL;
 
 type GptRequest = {
   message?: string;
@@ -46,48 +46,49 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: "Falta la variable de entorno OPENAI_MODEL.",
+        error: "Falta la variable de entorno GEMINI_MODEL.",
       },
       { status: 500 },
     );
   }
 
   try {
-    const openai = getOpenAIClient();
+    const gemini = getGeminiClient();
 
-    let response = await openai.responses.create({
+    let response = await gemini.interactions.create({
       model: MODEL,
-      input: [
-        {
-          role: "user",
-          content: message,
-        },
-      ],
-      tools: gptTools,
+      input: message,
+      tools: geminiTools,
     });
 
-    const toolOutputs = [];
+    const functionCalls = response.steps.filter(
+      (step) => step.type === "function_call",
+    );
 
-    for (const item of response.output) {
-      if (item.type !== "function_call") {
-        continue;
+    if (functionCalls.length > 0) {
+      const functionResults = [];
+
+      for (const call of functionCalls) {
+        const result = await executeGeminiTool(call.name);
+
+        functionResults.push({
+          type: "function_result" as const,
+          name: call.name,
+          call_id: call.id,
+          result: [
+            {
+              type: "text" as const,
+              text: JSON.stringify(result),
+            },
+          ],
+        });
       }
 
-      const result = await executeGptTool(item.name);
-
-      toolOutputs.push({
-        type: "function_call_output" as const,
-        call_id: item.call_id,
-        output: JSON.stringify(result),
-      });
-    }
-
-    if (toolOutputs.length > 0) {
-      response = await openai.responses.create({
+      response = await gemini.interactions.create({
         model: MODEL,
-        input: toolOutputs,
-        previous_response_id: response.id,
-        tools: gptTools,
+        input: functionResults,
+        previous_interaction_id: response.id,
+        tools: geminiTools,
       });
     }
 
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Error procesando la solicitud GPT.",
+            : "Error procesando la solicitud Gemini.",
       },
       { status: 500 },
     );
