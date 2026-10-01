@@ -1,4 +1,4 @@
-﻿import {
+import {
   executeAction,
   type ActionResult,
 } from "@/lib/actions/engine";
@@ -14,6 +14,7 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
+    strict: true,
   },
   {
     type: "function" as const,
@@ -25,6 +26,7 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
+    strict: true,
   },
   {
     type: "function" as const,
@@ -36,6 +38,7 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
+    strict: true,
   },
   {
     type: "function" as const,
@@ -47,6 +50,7 @@ export const gptTools = [
       properties: {},
       additionalProperties: false,
     },
+    strict: true,
   },
 ];
 
