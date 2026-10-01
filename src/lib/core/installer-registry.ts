@@ -1,8 +1,11 @@
-﻿export type InstallerDefinition = {
+export type InstallerDefinition = {
   componentId: string;
   componentName: string;
   enabled: boolean;
-  installerType: "official-installer" | "package-manager" | "system";
+  installerType:
+    | "official-installer"
+    | "package-manager"
+    | "system";
   provider: string;
   source: string | null;
   versionStrategy: "latest" | "fixed" | "system";
@@ -92,7 +95,14 @@ export const INSTALLER_REGISTRY: InstallerDefinition[] = [
 ];
 
 export function getInstallerRegistry(): InstallerDefinition[] {
-  return INSTALLER_REGISTRY;
+  return INSTALLER_REGISTRY.map((installer) => ({
+    ...installer,
+    allowedArguments: [...installer.allowedArguments],
+    verification: {
+      ...installer.verification,
+      args: [...installer.verification.args],
+    },
+  }));
 }
 
 export function getInstaller(

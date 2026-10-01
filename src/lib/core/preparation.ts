@@ -1,68 +1,12 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+
+import { detectComponents } from "@/lib/core/component-registry";
 
 const ROOT = process.cwd();
 
-function run(command: string, args: string[]): string {
-  try {
-    return execFileSync(command, args, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return "";
-  }
-}
-
-function detectTools() {
-  const node = process.version;
-
-  const npm = run(process.execPath, [
-    path.join(
-      path.dirname(process.execPath),
-      "node_modules",
-      "npm",
-      "bin",
-      "npm-cli.js",
-    ),
-    "--version",
-  ]);
-
-  const git = run("git", ["--version"]);
-
-  const powershellCommand =
-    process.env.ComSpec && process.platform === "win32"
-      ? "powershell.exe"
-      : "powershell";
-
-  const powershell = run(
-    powershellCommand,
-    ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
-  );
-
-  return {
-    node: {
-      installed: Boolean(node),
-      version: node,
-    },
-    npm: {
-      installed: Boolean(npm),
-      version: npm,
-    },
-    git: {
-      installed: Boolean(git),
-      version: git,
-    },
-    powershell: {
-      installed: Boolean(powershell),
-      version: powershell,
-    },
-  };
-}
-
-export function prepareSystem() {
+export async function prepareSystem() {
   const directories = [
     "data",
     "data/config",
@@ -86,7 +30,17 @@ export function prepareSystem() {
     created.push(relativePath);
   }
 
-  const tools = detectTools();
+  const checks = await detectComponents();
+
+  const tools = Object.fromEntries(
+    checks.map((check) => [
+      check.id,
+      {
+        installed: check.installed,
+        version: check.version ?? "",
+      },
+    ]),
+  );
 
   const configPath = path.join(
     ROOT,
@@ -134,6 +88,6 @@ export function prepareSystem() {
     created,
     existing,
     tools,
+    checks,
   };
 }
-

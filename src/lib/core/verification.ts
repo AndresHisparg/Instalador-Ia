@@ -1,46 +1,13 @@
-﻿import fs from "node:fs";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+
+import { detectComponents } from "@/lib/core/component-registry";
 
 const ROOT = process.cwd();
 
-type Check = {
-  name: string;
-  passed: boolean;
-  detail: string;
-};
-
-function run(command: string, args: string[]): string {
-  try {
-    return execFileSync(command, args, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-  } catch {
-    return "";
-  }
-}
-
-function checkCommand(
-  name: string,
-  command: string,
-  args: string[],
-  detailPrefix = "",
-): Check {
-  const result = run(command, args);
-
-  return {
-    name,
-    passed: Boolean(result),
-    detail: result
-      ? `${detailPrefix}${result}`
-      : `${command} no disponible`,
-  };
-}
-
-export function verifySystem() {
-  const checks: Check[] = [];
+export async function verifySystem() {
+  const checks = [];
 
   const windowsPassed = process.platform === "win32";
 
@@ -60,54 +27,17 @@ export function verifySystem() {
     detail: architecture,
   });
 
-  const nodeVersion = process.version;
+  const components = await detectComponents();
 
-  checks.push({
-    name: "Node.js",
-    passed: Boolean(nodeVersion),
-    detail: `Versión ${nodeVersion}`,
-  });
-
-  const npmVersion = run(process.execPath, [
-    path.join(
-      path.dirname(process.execPath),
-      "node_modules",
-      "npm",
-      "bin",
-      "npm-cli.js",
-    ),
-    "--version",
-  ]);
-
-  checks.push({
-    name: "npm",
-    passed: Boolean(npmVersion),
-    detail: npmVersion
-      ? `Versión ${npmVersion}`
-      : "npm no disponible",
-  });
-
-  checks.push(
-    checkCommand(
-      "Git",
-      "git",
-      ["--version"],
-    ),
-  );
-
-  const powershellCommand =
-    process.env.ComSpec && process.platform === "win32"
-      ? "powershell.exe"
-      : "powershell";
-
-  checks.push(
-    checkCommand(
-      "PowerShell",
-      powershellCommand,
-      ["-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
-      "Versión ",
-    ),
-  );
+  for (const component of components) {
+    checks.push({
+      name: component.name,
+      passed: component.installed,
+      detail: component.installed
+        ? `Versión ${component.version}`
+        : component.error ?? `${component.name} no disponible`,
+    });
+  }
 
   const configPath = path.join(
     ROOT,
@@ -116,10 +46,12 @@ export function verifySystem() {
     "installer.json",
   );
 
+  const configExists = fs.existsSync(configPath);
+
   checks.push({
     name: "Configuración del instalador",
-    passed: fs.existsSync(configPath),
-    detail: fs.existsSync(configPath)
+    passed: configExists,
+    detail: configExists
       ? "installer.json encontrado"
       : "installer.json no encontrado",
   });
@@ -129,5 +61,6 @@ export function verifySystem() {
     ready: checks.every((check) => check.passed),
     checkedAt: new Date().toISOString(),
     checks,
+    components,
   };
 }
