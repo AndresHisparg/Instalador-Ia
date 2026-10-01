@@ -1,5 +1,5 @@
 ﻿import { verifySystem } from "./verification";
 
-export function getSystemStatus() {
-  return verifySystem();
+export async function getSystemStatus() {
+  return await verifySystem();
 }

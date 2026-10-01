@@ -85,7 +85,7 @@ export async function executeAction(
         success: true,
         action: request.action,
         status: "completed",
-        result: getSystemStatus(),
+        result: await getSystemStatus(),
       };
 
     case "preparar":
@@ -93,7 +93,7 @@ export async function executeAction(
         success: true,
         action: request.action,
         status: "completed",
-        result: prepareSystem(),
+        result: await prepareSystem(),
       };
 
     case "verificar":
@@ -101,7 +101,7 @@ export async function executeAction(
         success: true,
         action: request.action,
         status: "completed",
-        result: verifySystem(),
+        result: await verifySystem(),
       };
 
     case "planificar_instalacion":
