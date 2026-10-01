@@ -1,5 +1,6 @@
 ﻿import { NextRequest } from "next/server";
 import { ACTIONS, getAction } from "./catalog";
+import { authorizeAction } from "@/lib/security/policy";
 import { getSystemStatus } from "@/lib/core/system";
 import { prepareSystem } from "@/lib/core/preparation";
 import { verifySystem } from "@/lib/core/verification";
@@ -9,6 +10,8 @@ export type ActionRequest = {
   action: string;
   input?: Record<string, unknown>;
   request?: NextRequest;
+  source?: "system" | "user" | "gpt" | "api";
+  confirmed?: boolean;
 };
 
 export type ActionResult = {
@@ -39,6 +42,21 @@ export function validateAction(
       action: request.action,
       status: "blocked",
       error: "La acción existe pero está deshabilitada.",
+    };
+  }
+
+  const authorization = authorizeAction({
+    action: request.action,
+    source: request.source ?? "system",
+    confirmed: request.confirmed,
+  });
+
+  if (!authorization.allowed) {
+    return {
+      success: false,
+      action: request.action,
+      status: "blocked",
+      error: authorization.reason,
     };
   }
 

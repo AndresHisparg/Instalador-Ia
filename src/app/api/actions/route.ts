@@ -1,4 +1,5 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import {
   executeAction,
   getActionCatalog,
@@ -12,6 +13,7 @@ export async function POST(request: NextRequest) {
   let body: {
     action?: string;
     input?: Record<string, unknown>;
+    confirmed?: boolean;
   };
 
   try {
@@ -39,6 +41,8 @@ export async function POST(request: NextRequest) {
   const result = await executeAction({
     action: body.action,
     input: body.input,
+    confirmed: body.confirmed,
+    source: "api",
     request,
   });
 
