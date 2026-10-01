@@ -2,5 +2,5 @@
 import { verifySystem } from "@/lib/core/verification";
 
 export async function GET() {
-  return NextResponse.json(verifySystem());
+  return NextResponse.json(await verifySystem());
 }
